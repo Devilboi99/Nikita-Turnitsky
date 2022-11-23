@@ -5,7 +5,7 @@ import sys
 
 from prettytable import PrettyTable
 
-
+##ааааааааа какая боль какая боль
 def main():
     convert = ConvertCsvToTable()
     convert.MakeConvert()
