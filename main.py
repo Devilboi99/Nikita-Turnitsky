@@ -5,7 +5,7 @@ import sys
 
 from prettytable import PrettyTable
 
-##ааааааааа какая боль какая боль
+
 def main():
     convert = ConvertCsvToTable()
     convert.MakeConvert()
@@ -298,9 +298,9 @@ class ConvertCsvToTable:
         """соеденяет все данные связанные с зарплатой"""
         list = []
         dict = {'Да': 'Без вычета налогов', 'Нет': 'С вычетом налогов'}
-        for j in range(0, 4):
+        for j in range(0, 3):
             list.append(row[j + i])
-        salary = Salary(int(float(list[0])), int(float(list[1])), dict[list[2]], list[3])
+        salary = Salary(int(float(list[0])), int(float(list[1])), list[2])
         return salary
 
 
