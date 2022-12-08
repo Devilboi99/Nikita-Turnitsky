@@ -11,13 +11,15 @@ def main():
     statisticsApp.LoadCsvFile(nameFile)
     statisticsApp.SetData()
     statisticsApp.LoadSettings(profession)
-    statisticsApp.Start()
-    statisticsApp.PrintDynamicsSalaryByYear()
+    statisticsApp.DataPreparation()
+    statisticsApp.CreateCsvFileByYear()
+    statisticsApp.PrintDynamicsSalaryVacancyByYear()
     statisticsApp.PrintDynamicsFilterVacancyByYear()
     statisticsApp.printDymabicsByCity()
-
+    input('Press ENTER to exit')
 
 class StatisticsApp:
+    """"программа, преваращющая данные в статистику"""
     def __init__(self):
         self.__FileData = ''
         self.__Profession = ''
@@ -25,12 +27,14 @@ class StatisticsApp:
         self.__DynamicsSalaryByCity = {}
         self.__TotalVacancies = 0
 
-    def Start(self):
+    def DataPreparation(self):
+        """подготавливает данные для вывода статистики"""
         vacancies = self.__GetVacancies()
         self.__TotalVacancies = len(vacancies)
         self.__SetStatistics(vacancies)
 
     def __SetStatistics(self, vacancies):
+        """устанавливает данные по датам и городам"""
         for vacancy in vacancies:
             if not self.IsAdded(vacancy.publishedAt.year, self.__DynamicsSalaryByYear):
                 self.__DynamicsSalaryByYear[vacancy.publishedAt.year] = []
@@ -39,16 +43,20 @@ class StatisticsApp:
             self.__DynamicsSalaryByYear[vacancy.publishedAt.year].append(vacancy)
             self.__DynamicsSalaryByCity[vacancy.areaName].append(vacancy)
 
-    def IsAdded(self, element, dynamics):
+    @staticmethod
+    def IsAdded(element, dynamics):
+        """проверяет добавлен ли ключ"""
         return element in dynamics.keys()
 
-    def PrintDynamicsSalaryByYear(self):
+    def PrintDynamicsSalaryVacancyByYear(self):
+        """выводит данные по годам"""
         print("Динамика уровня зарплат по годам: " + str(
             {k: self.GetAverageSalary(v) for k, v in self.__DynamicsSalaryByYear.items()}))
         print("Динамика количества вакансий по годам: " + str(
             {k: int(len(v)) for k, v in self.__DynamicsSalaryByYear.items()}))
 
     def PrintDynamicsFilterVacancyByYear(self):
+        """выводит данные по годам с учётом профессий"""
         print("Динамика уровня зарплат по годам для выбранной профессии: " + str(
             {k: self.GetAverageSalary(list(filter(lambda x: self.__Profession in x.name, v))) for k, v in
              self.__DynamicsSalaryByYear.items()}))
@@ -58,12 +66,14 @@ class StatisticsApp:
              self.__DynamicsSalaryByYear.items()}))
 
     def printDymabicsByCity(self):
+        """выводит данные по городам"""
         result = {k: self.GetAverageSalary(v) for k, v in self.__DynamicsSalaryByCity.items() if
                   round(len(v) / self.__TotalVacancies, 4) >= 0.01}
         print("Уровень зарплат по городам (в порядке убывания): " + str(
             dict(sorted(result.items(), reverse=True, key=lambda item: item[1])[:10])))
 
-        result = {k: round(len(v) / self.__TotalVacancies, 4) for k, v in self.__DynamicsSalaryByCity.items() if round(len(v) / self.__TotalVacancies, 4) >= 0.01}
+        result = {k: round(len(v) / self.__TotalVacancies, 4) for k, v in self.__DynamicsSalaryByCity.items() if
+                  round(len(v) / self.__TotalVacancies, 4) >= 0.01}
         print("Доля вакансий по городам (в порядке убывания): " + str(
             dict(sorted(result.items(), reverse=True, key=lambda item: item[1])[:10])))
 
@@ -71,26 +81,27 @@ class StatisticsApp:
         File = open(fileName, encoding='utf_8_sig')
         self.__FileData = [row for row in csv.reader(File)]
         if len(self.__FileData) == 0:
-            print("Пустой файл")            ## кринж
+            print("Пустой файл")  ## кринж
             sys.exit()
 
     def LoadSettings(self, profession):
         self.__Profession = profession
 
     def __GetVacancies(self):
-        """получение данных в формате для чтения"""
+        """превращает данные в стукрутру vacancy"""
         personsInfo = []
         for row in self.__FileData:
             personsInfo.append(Vacancy(row))
 
         if len(personsInfo) == 0:
-            print("Нет данных")     ## пж напиши здесь tru catch умоляю, это не смешно плзззз
+            print("Нет данных")  ## пж напиши здесь tru catch умоляю, это не смешно плзззз
             sys.exit()
 
         return personsInfo
 
     @staticmethod
     def GetAverageSalary(vacancies):
+        """выводит среднию зарплату по вакансиям"""
         salaryAverage = 0
         if len(vacancies) == 0:
             return 0
@@ -151,6 +162,19 @@ class StatisticsApp:
         """"чистит от html кода данные"""
         return ' '.join(re.sub(r"<[^>]+>", '', StrValue).split())
 
+    def CreateCsvFileByYear(self):
+        for k in self.__DynamicsSalaryByYear.keys():
+            self.CreateCsvBy(k)
+
+    def CreateCsvBy(self, year):
+        with open(f'VacanciesByYears/vanacies_from_{year}.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['name', 'salary_from', 'salary_to', 'salary_currency', 'area_name', 'published_at'])
+            for vacancy in self.__DynamicsSalaryByYear[year]:
+                writer.writerow(
+                    [vacancy.name, vacancy.Salary.From, vacancy.Salary.To, vacancy.Salary.Currency, vacancy.areaName,
+                     vacancy.publishedAt])
+
 
 class Vacancy:
     def __init__(self, info):
@@ -159,6 +183,9 @@ class Vacancy:
         self.areaName = info[4]
         x = info[5]
         self.publishedAt = datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S%z")
+
+    def __str__(self):
+        return [self.name, self.Salary.From, self.Salary.To, self.Salary.Currency, self.publishedAt]
 
 
 class Salary:
