@@ -1,40 +1,72 @@
 import csv
+import multiprocessing
 import re
 import sys
 import datetime
+import cProfile
+
+import pytz as pytz
+
+
+def respone(response):
+    st = StatisticsApp()
+    result = response.pop(0)
+    for dataset in response:
+        result.DynamicsSalaryByYear = dict(
+            list(result.DynamicsSalaryByYear.items()) + list(dataset.DynamicsSalaryByYear.items()))
+        result.DynamicsSalaryByCity = dict(
+            list(result.DynamicsSalaryByCity.items()) + list(dataset.DynamicsSalaryByCity.items()))
+        result.TotalVacancies += dataset.TotalVacancies
+
+    st.PrintDynamicsSalaryVacancyByYear(result.DynamicsSalaryByYear)
+    st.PrintDynamicsFilterVacancyByYear(result.DynamicsSalaryByYear, result.Profession)
+    st.printDymabicsByCity(result.DynamicsSalaryByCity, result.TotalVacancies)
 
 
 def main():
     statisticsApp = StatisticsApp()
-    nameFile = input('Введите название файла: ')
+    directory = input('Введите название папки: ')
     profession = input('Введите название профессии: ')
-    statisticsApp.LoadCsvFile(nameFile)
-    statisticsApp.SetData()
-    statisticsApp.LoadSettings(profession)
-    statisticsApp.DataPreparation()
-    statisticsApp.CreateCsvFileByYear()
-    statisticsApp.PrintDynamicsSalaryVacancyByYear()
-    statisticsApp.PrintDynamicsFilterVacancyByYear()
-    statisticsApp.printDymabicsByCity()
-    input('Press ENTER to exit')
+    statisticsApp.LoadFilter(profession)
+    paths = []
+    for e in range(2007, 2023):
+        paths.append(f"{directory}/vanacies_from_{e}.csv")
+    with multiprocessing.Pool(3) as p:
+        p.map_async(statisticsApp.DataPreparation, paths, callback=respone)
+        p.close()
+        p.join()
+
+
+class DataSet:
+    def __init__(self, profession, dynsy, dynsc, tv):
+        self.Profession = profession
+        self.DynamicsSalaryByYear = dynsy
+        self.DynamicsSalaryByCity = dynsc
+        self.TotalVacancies = tv
+
 
 class StatisticsApp:
     """"программа, преваращющая данные в статистику"""
+
     def __init__(self):
-        self.__FileData = ''
         self.__Profession = ''
         self.__DynamicsSalaryByYear = {}
         self.__DynamicsSalaryByCity = {}
         self.__TotalVacancies = 0
 
-    def DataPreparation(self):
+    def DataPreparation(self, pathFile):
         """подготавливает данные для вывода статистики"""
-        vacancies = self.__GetVacancies()
-        self.__TotalVacancies = len(vacancies)
+        data = self.LoadCsvFile(pathFile)
+        data = self.ConfigurateData(data)
+        vacancies = self.__GetVacancies(data)
+        self.__TotalVacancies += len(vacancies)
         self.__SetStatistics(vacancies)
+        return DataSet(self.__Profession, self.__DynamicsSalaryByYear, self.__DynamicsSalaryByCity,
+                       self.__TotalVacancies)
 
     def __SetStatistics(self, vacancies):
         """устанавливает данные по датам и городам"""
+        print(4)
         for vacancy in vacancies:
             if not self.IsAdded(vacancy.publishedAt.year, self.__DynamicsSalaryByYear):
                 self.__DynamicsSalaryByYear[vacancy.publishedAt.year] = []
@@ -48,49 +80,57 @@ class StatisticsApp:
         """проверяет добавлен ли ключ"""
         return element in dynamics.keys()
 
-    def PrintDynamicsSalaryVacancyByYear(self):
+    @staticmethod
+    def PrintDynamicsSalaryVacancyByYear(dynamicsSalaryByYear):
         """выводит данные по годам"""
         print("Динамика уровня зарплат по годам: " + str(
-            {k: self.GetAverageSalary(v) for k, v in self.__DynamicsSalaryByYear.items()}))
+            {k: StatisticsApp.GetAverageSalary(v) for k, v in dynamicsSalaryByYear.items()}))
         print("Динамика количества вакансий по годам: " + str(
-            {k: int(len(v)) for k, v in self.__DynamicsSalaryByYear.items()}))
+            {k: int(len(v)) for k, v in dynamicsSalaryByYear.items()}))
 
-    def PrintDynamicsFilterVacancyByYear(self):
+    @staticmethod
+    def PrintDynamicsFilterVacancyByYear(dynamicsSalaryByYear, profession):
         """выводит данные по годам с учётом профессий"""
         print("Динамика уровня зарплат по годам для выбранной профессии: " + str(
-            {k: self.GetAverageSalary(list(filter(lambda x: self.__Profession in x.name, v))) for k, v in
-             self.__DynamicsSalaryByYear.items()}))
+            {k: StatisticsApp.GetAverageSalary(list(filter(lambda x: profession in x.name, v))) for k, v in
+             dynamicsSalaryByYear.items()}))
 
         print("Динамика количества вакансий по годам для выбранной профессии: " + str(
-            {k: int(len(list(filter(lambda x: self.__Profession in x.name, v)))) for k, v in
-             self.__DynamicsSalaryByYear.items()}))
+            {k: int(len(list(filter(lambda x: profession in x.name, v)))) for k, v in
+             dynamicsSalaryByYear.items()}))
 
-    def printDymabicsByCity(self):
+    @staticmethod
+    def printDymabicsByCity(DynamicsSalaryByCity, totalVac):
         """выводит данные по городам"""
-        result = {k: self.GetAverageSalary(v) for k, v in self.__DynamicsSalaryByCity.items() if
-                  round(len(v) / self.__TotalVacancies, 4) >= 0.01}
+        result = {k: StatisticsApp.GetAverageSalary(v) for k, v in DynamicsSalaryByCity.items() if
+                  round(len(v) / totalVac, 4) >= 0.01}
         print("Уровень зарплат по городам (в порядке убывания): " + str(
             dict(sorted(result.items(), reverse=True, key=lambda item: item[1])[:10])))
 
-        result = {k: round(len(v) / self.__TotalVacancies, 4) for k, v in self.__DynamicsSalaryByCity.items() if
-                  round(len(v) / self.__TotalVacancies, 4) >= 0.01}
+        result = {k: round(len(v) / totalVac, 4) for k, v in DynamicsSalaryByCity.items() if
+                  round(len(v) / totalVac, 4) >= 0.01}
         print("Доля вакансий по городам (в порядке убывания): " + str(
             dict(sorted(result.items(), reverse=True, key=lambda item: item[1])[:10])))
 
-    def LoadCsvFile(self, fileName):
+    @staticmethod
+    def LoadCsvFile(fileName):
+        print(1)
         File = open(fileName, encoding='utf_8_sig')
-        self.__FileData = [row for row in csv.reader(File)]
-        if len(self.__FileData) == 0:
+        data = [row for row in csv.reader(File)]
+        if len(data) == 0:
             print("Пустой файл")  ## кринж
             sys.exit()
+        return data
 
-    def LoadSettings(self, profession):
+    def LoadFilter(self, profession):
         self.__Profession = profession
 
-    def __GetVacancies(self):
+    @staticmethod
+    def __GetVacancies(data):
         """превращает данные в стукрутру vacancy"""
+        print(3)
         personsInfo = []
-        for row in self.__FileData:
+        for row in data:
             personsInfo.append(Vacancy(row))
 
         if len(personsInfo) == 0:
@@ -120,13 +160,15 @@ class StatisticsApp:
                 return False
         return True
 
-    def SetData(self):
+    def ConfigurateData(self, data):
         """получение данных в формате для чтения"""
-        if len(self.__FileData) == 6:
-            return
+        print(2)
+        if len(data[0]) == 6:
+            data.pop(0)
+            return data
         personsInfo = []
-        attributes = self.__FileData.pop(0)
-        for row in self.__FileData:
+        attributes = data.pop(0)
+        for row in data:
             if self.__RowIsFull(len(attributes), row):
                 personsInfo.append(self.__CreateDict(attributes, self.__CsvFilter(row)))
         if len(personsInfo) == 0:
@@ -138,7 +180,7 @@ class StatisticsApp:
                          person['salary_from'],
                          person['salary_to'], person['salary_currency'], person['area_name'], person['published_at']])
 
-        self.__FileData = info
+        return info
 
     @staticmethod
     def __CreateDict(nameColumn, row):
@@ -173,7 +215,7 @@ class StatisticsApp:
             for vacancy in self.__DynamicsSalaryByYear[year]:
                 writer.writerow(
                     [vacancy.name, vacancy.Salary.From, vacancy.Salary.To, vacancy.Salary.Currency, vacancy.areaName,
-                     vacancy.publishedAt])
+                     str(vacancy.publishedAt).replace(' ', 'T')])
 
 
 class Vacancy:
@@ -182,7 +224,8 @@ class Vacancy:
         self.Salary = Salary(float(info[1]), float(info[2]), info[3])
         self.areaName = info[4]
         x = info[5]
-        self.publishedAt = datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S%z")
+        native = datetime.datetime.strptime(x, "%Y-%m-%dT%H:%M:%S%z")
+        self.publishedAt = native
 
     def __str__(self):
         return [self.name, self.Salary.From, self.Salary.To, self.Salary.Currency, self.publishedAt]
@@ -246,4 +289,4 @@ class Formate:
 
 
 if __name__ == '__main__':
-    main()
+    cProfile.run("main()");
